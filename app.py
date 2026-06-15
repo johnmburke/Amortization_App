@@ -15,7 +15,7 @@ import streamlit as st
 
 
 SETTINGS_FILE = Path(__file__).with_name("settings.json")
-APP_VERSION = "1.1.1"
+APP_VERSION = "1.1.2"
 APP_REPOSITORY_URL = "https://github.com/johnmburke/Amortization_App"
 APP_VERSION_URLS = [
     "https://raw.githubusercontent.com/johnmburke/Amortization_App/main/version.json",
@@ -198,46 +198,23 @@ def fetch_latest_app_version() -> dict[str, object]:
 
 
 def render_update_checker() -> None:
-    with st.expander("Application Updates", expanded=False):
+    update_check = fetch_latest_app_version()
+    if not update_check["ok"]:
+        return
+
+    latest_version = str(update_check["version"])
+    if compare_versions(APP_VERSION, latest_version) >= 0:
+        return
+
+    download_url = str(update_check["download_url"])
+    release_notes = str(update_check["release_notes"])
+
+    with st.expander("Application Updates", expanded=True):
+        st.warning(f"Version {latest_version} is available.")
         st.caption(f"Installed version: {APP_VERSION}")
-
-        if st.button("Check for Updates", use_container_width=True):
-            fetch_latest_app_version.clear()
-            st.session_state["show_update_check"] = True
-
-        if not st.session_state.get("show_update_check", False):
-            return
-
-        with st.spinner("Checking GitHub for updates..."):
-            update_check = fetch_latest_app_version()
-
-        if not update_check["ok"]:
-            st.error("Unable to check for updates right now.")
-            st.caption(str(update_check["error"]))
-            if update_check.get("status_code") == 404:
-                st.link_button(
-                    "Open GitHub Repository",
-                    APP_REPOSITORY_URL,
-                    use_container_width=True,
-                )
-            return
-
-        latest_version = str(update_check["version"])
-        download_url = str(update_check["download_url"])
-        release_notes = str(update_check["release_notes"])
-        comparison = compare_versions(APP_VERSION, latest_version)
-
-        if comparison < 0:
-            st.warning(f"Version {latest_version} is available.")
-            if release_notes:
-                st.caption(release_notes)
-            st.link_button("Open Update Page", download_url, use_container_width=True)
-        elif comparison > 0:
-            st.info(f"You are running version {APP_VERSION}.")
-            st.caption(f"The published version is {latest_version}.")
-        else:
-            st.success("You are up to date.")
-            st.caption(f"Latest version: {latest_version}")
+        if release_notes:
+            st.caption(release_notes)
+        st.link_button("Open Update Page", download_url, use_container_width=True)
 
 
 def saved_float(

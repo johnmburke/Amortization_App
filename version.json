@@ -1,5 +1,5 @@
 {
-  "version": "1.1.1",
+  "version": "1.1.2",
   "download_url": "https://github.com/johnmburke/Amortization_App",
-  "release_notes": "Improves update checking and explains GitHub 404 responses."
+  "release_notes": "Shows the Application Updates section only when a newer version is available."
 }
