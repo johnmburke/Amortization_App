@@ -17,12 +17,12 @@ import streamlit as st
 
 
 SETTINGS_FILE = Path(__file__).with_name("settings.json")
-APP_VERSION = "1.2.5"
+APP_VERSION = "1.2.6"
 APP_REPOSITORY_URL = "https://github.com/johnmburke/Amortization_App"
 APP_VERSION_URLS = [
+    "https://api.github.com/repos/johnmburke/Amortization_App/contents/version.json?ref=main",
     "https://raw.githubusercontent.com/johnmburke/Amortization_App/main/version.json",
     "https://raw.githubusercontent.com/johnmburke/Amortization_App/refs/heads/main/version.json",
-    "https://api.github.com/repos/johnmburke/Amortization_App/contents/version.json?ref=main",
 ]
 APP_ARCHIVE_URL = (
     "https://github.com/johnmburke/Amortization_App/archive/refs/heads/main.zip"
@@ -148,14 +148,18 @@ def get_installed_app_version() -> str:
 def fetch_url_bytes(url: str, timeout: int = 30) -> bytes:
     request = urllib.request.Request(
         url,
-        headers={"User-Agent": f"AmortizationCalculator/{APP_VERSION}"},
+        headers={
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+            "User-Agent": f"AmortizationCalculator/{APP_VERSION}",
+        },
     )
 
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return response.read()
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def fetch_latest_app_version() -> dict[str, object]:
     errors: list[str] = []
     status_codes: list[int] = []
@@ -165,6 +169,8 @@ def fetch_latest_app_version() -> dict[str, object]:
             version_url,
             headers={
                 "Accept": "application/vnd.github+json",
+                "Cache-Control": "no-cache",
+                "Pragma": "no-cache",
                 "User-Agent": f"AmortizationCalculator/{APP_VERSION}",
             },
         )

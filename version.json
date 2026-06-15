@@ -1,6 +1,6 @@
 {
-  "version": "1.2.5",
+  "version": "1.2.6",
   "download_url": "https://github.com/johnmburke/Amortization_App",
   "archive_url": "https://github.com/johnmburke/Amortization_App/archive/refs/heads/main.zip",
-  "release_notes": "Makes the updater compare against the installed version file after applying updates."
+  "release_notes": "Refreshes update checks more often and prefers GitHub API version metadata."
 }
