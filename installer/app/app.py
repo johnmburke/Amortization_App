@@ -21,7 +21,7 @@ import streamlit as st
 
 
 SETTINGS_FILE = Path(__file__).with_name("settings.json")
-APP_VERSION = "1.3.1"
+APP_VERSION = "1.3.2"
 APP_REPOSITORY_URL = "https://github.com/johnmburke/Amortization_App"
 APP_VERSION_URLS = [
     "https://api.github.com/repos/johnmburke/Amortization_App/contents/version.json?ref=main",
@@ -33,10 +33,15 @@ APP_ARCHIVE_URL = (
 )
 APP_ICON_ICO = "app_icon.ico"
 APP_ICON_PNG = "app_icon.png"
+APP_LAUNCHER_EXE = "Amortization Calculator.exe"
 APP_ICON_URLS = {
     APP_ICON_ICO: "https://raw.githubusercontent.com/johnmburke/Amortization_App/main/app_icon.ico",
     APP_ICON_PNG: "https://raw.githubusercontent.com/johnmburke/Amortization_App/main/app_icon.png",
 }
+APP_LAUNCHER_EXE_URL = (
+    "https://raw.githubusercontent.com/johnmburke/Amortization_App/main/"
+    "Amortization%20Calculator.exe"
+)
 APP_UPDATE_FILES = {
     "app.py",
     "desktop_launcher.py",
@@ -44,6 +49,7 @@ APP_UPDATE_FILES = {
     "version.json",
     APP_ICON_ICO,
     APP_ICON_PNG,
+    APP_LAUNCHER_EXE,
 }
 WINDOWS_LAUNCHER_SCRIPT = r'''$ErrorActionPreference = "Stop"
 
@@ -51,7 +57,16 @@ $installRoot = Join-Path $env:LOCALAPPDATA "AmortizationCalculator"
 $appDir = Join-Path $installRoot "app"
 $venvPython = Join-Path $installRoot ".venv\Scripts\python.exe"
 $venvPythonw = Join-Path $installRoot ".venv\Scripts\pythonw.exe"
+$launcherExe = Join-Path $appDir "Amortization Calculator.exe"
 $launcherFile = Join-Path $appDir "desktop_launcher.py"
+
+if (Test-Path -LiteralPath $launcherExe) {
+    Start-Process `
+        -FilePath $launcherExe `
+        -WorkingDirectory $appDir `
+        -WindowStyle Hidden `
+    exit 0
+}
 
 if (-not (Test-Path -LiteralPath $launcherFile)) {
     exit 1
@@ -92,9 +107,19 @@ from pathlib import Path
 
 
 APP_NAME = "Amortization Calculator"
-APP_FILE = Path(__file__).with_name("app.py")
-APP_ICON_FILE = Path(__file__).with_name("app_icon.ico")
 APP_USER_MODEL_ID = "JohnMBurke.AmortizationCalculator"
+
+
+def get_app_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+
+    return Path(__file__).resolve().parent
+
+
+APP_DIR = get_app_dir()
+APP_FILE = APP_DIR / "app.py"
+APP_ICON_FILE = APP_DIR / "app_icon.ico"
 
 
 def show_error(message: str) -> None:
@@ -140,11 +165,26 @@ def wait_for_app(url: str, timeout_seconds: int = 30) -> bool:
     return False
 
 
+def get_streamlit_python() -> Path:
+    if getattr(sys, "frozen", False):
+        bundled_python = APP_DIR.parent / ".venv" / "Scripts" / "python.exe"
+        if bundled_python.exists():
+            return bundled_python
+
+    return Path(sys.executable)
+
+
 def start_streamlit(port: int) -> subprocess.Popen:
     creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    streamlit_python = get_streamlit_python()
+    if not streamlit_python.exists():
+        raise RuntimeError(
+            "Could not find the app's Python environment. Please reinstall the application."
+        )
+
     return subprocess.Popen(
         [
-            sys.executable,
+            str(streamlit_python),
             "-m",
             "streamlit",
             "run",
@@ -213,6 +253,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 '''
 DEFAULT_SCHEDULE_NAME = "Default"
 MONTHS = [
@@ -341,6 +382,19 @@ def ensure_local_app_icons(app_dir: Path) -> bool:
     return changed
 
 
+def ensure_local_launcher_exe(app_dir: Path) -> bool:
+    launcher_exe_path = app_dir / APP_LAUNCHER_EXE
+    if launcher_exe_path.exists() and launcher_exe_path.stat().st_size > 0:
+        return False
+
+    try:
+        launcher_bytes = fetch_binary_url(APP_LAUNCHER_EXE_URL)
+    except (OSError, TimeoutError, urllib.error.URLError, urllib.error.HTTPError):
+        return False
+
+    return write_bytes_if_changed(launcher_exe_path, launcher_bytes)
+
+
 def get_page_icon() -> object | None:
     icon_path = Path(__file__).with_name(APP_ICON_PNG)
     if not icon_path.exists():
@@ -409,6 +463,8 @@ def ensure_windows_launcher_current() -> None:
     launcher_vbs_path = install_root / "launch_amortization_app.vbs"
     desktop_launcher_path = installed_app_dir / "desktop_launcher.py"
     icon_files_changed = ensure_local_app_icons(installed_app_dir)
+    launcher_exe_changed = ensure_local_launcher_exe(installed_app_dir)
+    launcher_exe_path = installed_app_dir / APP_LAUNCHER_EXE
     icon_path = installed_app_dir / APP_ICON_ICO
     launcher_changed = write_text_if_changed(launcher_path, WINDOWS_LAUNCHER_SCRIPT)
     launcher_vbs_changed = write_text_if_changed(
@@ -428,12 +484,21 @@ def ensure_windows_launcher_current() -> None:
         [
             "$shortcutPath = Join-Path ([Environment]::GetFolderPath('Desktop')) "
             "'Amortization Calculator.lnk'",
+            f"$launcherExePath = {powershell_quote(str(launcher_exe_path))}",
+            f"$launcherVbsPath = {powershell_quote(str(launcher_vbs_path))}",
             f"$iconPath = {powershell_quote(str(icon_path))}",
             "$shell = New-Object -ComObject WScript.Shell",
             "$shortcut = $shell.CreateShortcut($shortcutPath)",
+            "if (Test-Path -LiteralPath $launcherExePath) {",
+            "    $shortcut.TargetPath = $launcherExePath",
+            "    $shortcut.Arguments = ''",
+            f"    $shortcut.WorkingDirectory = {powershell_quote(str(installed_app_dir))}",
+            "}",
+            "else {",
             "$shortcut.TargetPath = 'wscript.exe'",
             f"$shortcut.Arguments = {powershell_quote(shortcut_args)}",
             f"$shortcut.WorkingDirectory = {powershell_quote(str(install_root))}",
+            "}",
             "if (Test-Path -LiteralPath $iconPath) {",
             "    $shortcut.IconLocation = $iconPath",
             "}",
@@ -468,6 +533,7 @@ def ensure_windows_launcher_current() -> None:
         or launcher_vbs_changed
         or desktop_launcher_changed
         or icon_files_changed
+        or launcher_exe_changed
         or pywebview_installed
     ):
         st.session_state["launcher_repaired"] = True

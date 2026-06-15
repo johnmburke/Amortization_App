@@ -11,9 +11,19 @@ from pathlib import Path
 
 
 APP_NAME = "Amortization Calculator"
-APP_FILE = Path(__file__).with_name("app.py")
-APP_ICON_FILE = Path(__file__).with_name("app_icon.ico")
 APP_USER_MODEL_ID = "JohnMBurke.AmortizationCalculator"
+
+
+def get_app_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+
+    return Path(__file__).resolve().parent
+
+
+APP_DIR = get_app_dir()
+APP_FILE = APP_DIR / "app.py"
+APP_ICON_FILE = APP_DIR / "app_icon.ico"
 
 
 def show_error(message: str) -> None:
@@ -59,11 +69,26 @@ def wait_for_app(url: str, timeout_seconds: int = 30) -> bool:
     return False
 
 
+def get_streamlit_python() -> Path:
+    if getattr(sys, "frozen", False):
+        bundled_python = APP_DIR.parent / ".venv" / "Scripts" / "python.exe"
+        if bundled_python.exists():
+            return bundled_python
+
+    return Path(sys.executable)
+
+
 def start_streamlit(port: int) -> subprocess.Popen:
     creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    streamlit_python = get_streamlit_python()
+    if not streamlit_python.exists():
+        raise RuntimeError(
+            "Could not find the app's Python environment. Please reinstall the application."
+        )
+
     return subprocess.Popen(
         [
-            sys.executable,
+            str(streamlit_python),
             "-m",
             "streamlit",
             "run",

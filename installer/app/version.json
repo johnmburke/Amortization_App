@@ -1,6 +1,6 @@
 {
-  "version": "1.3.1",
+  "version": "1.3.2",
   "download_url": "https://github.com/johnmburke/Amortization_App",
   "archive_url": "https://github.com/johnmburke/Amortization_App/archive/refs/heads/main.zip",
-  "release_notes": "Adds a custom application icon for the desktop shortcut, Streamlit page, and pywebview taskbar window."
+  "release_notes": "Adds a custom Windows launcher executable so the running taskbar icon matches the application icon."
 }

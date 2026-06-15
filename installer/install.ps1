@@ -137,14 +137,23 @@ try {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "run_amortization_app.ps1") -Destination $launcherPath -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "launch_amortization_app.vbs") -Destination $launcherVbsPath -Force
 
-    $shortcutTarget = "wscript.exe"
-    $shortcutArgs = "//B //Nologo `"$launcherVbsPath`""
+    $launcherExePath = Join-Path $appDir "Amortization Calculator.exe"
+    if (Test-Path -LiteralPath $launcherExePath) {
+        $shortcutTarget = $launcherExePath
+        $shortcutArgs = ""
+        $shortcutWorkingDirectory = $appDir
+    }
+    else {
+        $shortcutTarget = "wscript.exe"
+        $shortcutArgs = "//B //Nologo `"$launcherVbsPath`""
+        $shortcutWorkingDirectory = $installRoot
+    }
     $iconPath = Join-Path $appDir "app_icon.ico"
     $shell = New-Object -ComObject WScript.Shell
     $shortcut = $shell.CreateShortcut($desktopShortcut)
     $shortcut.TargetPath = $shortcutTarget
     $shortcut.Arguments = $shortcutArgs
-    $shortcut.WorkingDirectory = $installRoot
+    $shortcut.WorkingDirectory = $shortcutWorkingDirectory
     if (Test-Path -LiteralPath $iconPath) {
         $shortcut.IconLocation = $iconPath
     }
