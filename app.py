@@ -17,7 +17,7 @@ import streamlit as st
 
 
 SETTINGS_FILE = Path(__file__).with_name("settings.json")
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.2.1"
 APP_REPOSITORY_URL = "https://github.com/johnmburke/Amortization_App"
 APP_VERSION_URLS = [
     "https://raw.githubusercontent.com/johnmburke/Amortization_App/main/version.json",
@@ -889,11 +889,18 @@ def add_final_payment_markers(fig: go.Figure, schedules: pd.DataFrame, y_column:
     if final_points.empty:
         return
 
+    final_points = final_points.copy()
+    final_points["Final Payment Amount"] = final_points["Total Monthly Payment"].map(
+        money
+    )
+
     fig.add_trace(
         go.Scatter(
             x=final_points["Date"],
             y=final_points[y_column],
+            customdata=final_points[["Final Payment Amount"]],
             text=final_points["Monthly Payment"] + " final",
+            hovertemplate="Final payment: %{customdata[0]}<extra></extra>",
             mode="markers+text",
             name="Final payment",
             textposition="top center",
