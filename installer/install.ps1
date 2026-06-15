@@ -139,12 +139,18 @@ try {
 
     $shortcutTarget = "wscript.exe"
     $shortcutArgs = "//B //Nologo `"$launcherVbsPath`""
+    $iconPath = Join-Path $appDir "app_icon.ico"
     $shell = New-Object -ComObject WScript.Shell
     $shortcut = $shell.CreateShortcut($desktopShortcut)
     $shortcut.TargetPath = $shortcutTarget
     $shortcut.Arguments = $shortcutArgs
     $shortcut.WorkingDirectory = $installRoot
-    $shortcut.IconLocation = "$env:SystemRoot\System32\shell32.dll,44"
+    if (Test-Path -LiteralPath $iconPath) {
+        $shortcut.IconLocation = $iconPath
+    }
+    else {
+        $shortcut.IconLocation = "$env:SystemRoot\System32\shell32.dll,44"
+    }
     $shortcut.Save()
 
     Write-Host ""

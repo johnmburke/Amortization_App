@@ -12,11 +12,23 @@ from pathlib import Path
 
 APP_NAME = "Amortization Calculator"
 APP_FILE = Path(__file__).with_name("app.py")
+APP_ICON_FILE = Path(__file__).with_name("app_icon.ico")
+APP_USER_MODEL_ID = "JohnMBurke.AmortizationCalculator"
 
 
 def show_error(message: str) -> None:
     try:
         ctypes.windll.user32.MessageBoxW(None, message, APP_NAME, 0x10)
+    except Exception:
+        pass
+
+
+def configure_windows_app_id() -> None:
+    if sys.platform != "win32":
+        return
+
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
     except Exception:
         pass
 
@@ -80,6 +92,8 @@ def stop_process(process: subprocess.Popen) -> None:
 
 
 def main() -> None:
+    configure_windows_app_id()
+
     if not APP_FILE.exists():
         show_error("Could not find app.py. Please reinstall the application.")
         return
@@ -110,7 +124,8 @@ def main() -> None:
             height=850,
             min_size=(900, 650),
         )
-        webview.start()
+        icon_path = str(APP_ICON_FILE) if APP_ICON_FILE.exists() else None
+        webview.start(icon=icon_path)
     finally:
         stop_process(streamlit_process)
 

@@ -21,7 +21,7 @@ import streamlit as st
 
 
 SETTINGS_FILE = Path(__file__).with_name("settings.json")
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.3.1"
 APP_REPOSITORY_URL = "https://github.com/johnmburke/Amortization_App"
 APP_VERSION_URLS = [
     "https://api.github.com/repos/johnmburke/Amortization_App/contents/version.json?ref=main",
@@ -31,7 +31,20 @@ APP_VERSION_URLS = [
 APP_ARCHIVE_URL = (
     "https://github.com/johnmburke/Amortization_App/archive/refs/heads/main.zip"
 )
-APP_UPDATE_FILES = {"app.py", "desktop_launcher.py", "requirements.txt", "version.json"}
+APP_ICON_ICO = "app_icon.ico"
+APP_ICON_PNG = "app_icon.png"
+APP_ICON_URLS = {
+    APP_ICON_ICO: "https://raw.githubusercontent.com/johnmburke/Amortization_App/main/app_icon.ico",
+    APP_ICON_PNG: "https://raw.githubusercontent.com/johnmburke/Amortization_App/main/app_icon.png",
+}
+APP_UPDATE_FILES = {
+    "app.py",
+    "desktop_launcher.py",
+    "requirements.txt",
+    "version.json",
+    APP_ICON_ICO,
+    APP_ICON_PNG,
+}
 WINDOWS_LAUNCHER_SCRIPT = r'''$ErrorActionPreference = "Stop"
 
 $installRoot = Join-Path $env:LOCALAPPDATA "AmortizationCalculator"
@@ -80,11 +93,23 @@ from pathlib import Path
 
 APP_NAME = "Amortization Calculator"
 APP_FILE = Path(__file__).with_name("app.py")
+APP_ICON_FILE = Path(__file__).with_name("app_icon.ico")
+APP_USER_MODEL_ID = "JohnMBurke.AmortizationCalculator"
 
 
 def show_error(message: str) -> None:
     try:
         ctypes.windll.user32.MessageBoxW(None, message, APP_NAME, 0x10)
+    except Exception:
+        pass
+
+
+def configure_windows_app_id() -> None:
+    if sys.platform != "win32":
+        return
+
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
     except Exception:
         pass
 
@@ -148,6 +173,8 @@ def stop_process(process: subprocess.Popen) -> None:
 
 
 def main() -> None:
+    configure_windows_app_id()
+
     if not APP_FILE.exists():
         show_error("Could not find app.py. Please reinstall the application.")
         return
@@ -178,7 +205,8 @@ def main() -> None:
             height=850,
             min_size=(900, 650),
         )
-        webview.start()
+        icon_path = str(APP_ICON_FILE) if APP_ICON_FILE.exists() else None
+        webview.start(icon=icon_path)
     finally:
         stop_process(streamlit_process)
 
@@ -273,6 +301,60 @@ def write_text_if_changed(path: Path, content: str) -> bool:
     return True
 
 
+def write_bytes_if_changed(path: Path, content: bytes) -> bool:
+    try:
+        if path.exists() and path.read_bytes() == content:
+            return False
+        path.write_bytes(content)
+    except OSError:
+        return False
+
+    return True
+
+
+def fetch_binary_url(url: str, timeout: int = 20) -> bytes:
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": f"AmortizationCalculator/{APP_VERSION}",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return response.read()
+
+
+def ensure_local_app_icons(app_dir: Path) -> bool:
+    changed = False
+
+    for file_name, icon_url in APP_ICON_URLS.items():
+        icon_path = app_dir / file_name
+        if icon_path.exists() and icon_path.stat().st_size > 0:
+            continue
+
+        try:
+            icon_bytes = fetch_binary_url(icon_url)
+        except (OSError, TimeoutError, urllib.error.URLError, urllib.error.HTTPError):
+            continue
+
+        changed = write_bytes_if_changed(icon_path, icon_bytes) or changed
+
+    return changed
+
+
+def get_page_icon() -> object | None:
+    icon_path = Path(__file__).with_name(APP_ICON_PNG)
+    if not icon_path.exists():
+        return None
+
+    try:
+        from PIL import Image
+
+        with Image.open(icon_path) as icon_image:
+            return icon_image.copy()
+    except Exception:
+        return None
+
+
 def powershell_quote(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
@@ -326,6 +408,8 @@ def ensure_windows_launcher_current() -> None:
     launcher_path = install_root / "run_amortization_app.ps1"
     launcher_vbs_path = install_root / "launch_amortization_app.vbs"
     desktop_launcher_path = installed_app_dir / "desktop_launcher.py"
+    icon_files_changed = ensure_local_app_icons(installed_app_dir)
+    icon_path = installed_app_dir / APP_ICON_ICO
     launcher_changed = write_text_if_changed(launcher_path, WINDOWS_LAUNCHER_SCRIPT)
     launcher_vbs_changed = write_text_if_changed(
         launcher_vbs_path,
@@ -344,12 +428,18 @@ def ensure_windows_launcher_current() -> None:
         [
             "$shortcutPath = Join-Path ([Environment]::GetFolderPath('Desktop')) "
             "'Amortization Calculator.lnk'",
+            f"$iconPath = {powershell_quote(str(icon_path))}",
             "$shell = New-Object -ComObject WScript.Shell",
             "$shortcut = $shell.CreateShortcut($shortcutPath)",
             "$shortcut.TargetPath = 'wscript.exe'",
             f"$shortcut.Arguments = {powershell_quote(shortcut_args)}",
             f"$shortcut.WorkingDirectory = {powershell_quote(str(install_root))}",
-            '$shortcut.IconLocation = "$env:SystemRoot\\System32\\shell32.dll,44"',
+            "if (Test-Path -LiteralPath $iconPath) {",
+            "    $shortcut.IconLocation = $iconPath",
+            "}",
+            "else {",
+            '    $shortcut.IconLocation = "$env:SystemRoot\\System32\\shell32.dll,44"',
+            "}",
             "$shortcut.Save()",
         ]
     )
@@ -377,6 +467,7 @@ def ensure_windows_launcher_current() -> None:
         launcher_changed
         or launcher_vbs_changed
         or desktop_launcher_changed
+        or icon_files_changed
         or pywebview_installed
     ):
         st.session_state["launcher_repaired"] = True
@@ -1253,7 +1344,17 @@ def request_schedule_switch() -> None:
 
 
 def main() -> None:
-    st.set_page_config(page_title="Amortization Line Graph Calculator", layout="wide")
+    ensure_local_app_icons(Path(__file__).resolve().parent)
+
+    page_config = {
+        "page_title": "Amortization Line Graph Calculator",
+        "layout": "wide",
+    }
+    page_icon = get_page_icon()
+    if page_icon is not None:
+        page_config["page_icon"] = page_icon
+
+    st.set_page_config(**page_config)
     ensure_windows_launcher_current()
 
     st.title("Amortization Line Graph Calculator")

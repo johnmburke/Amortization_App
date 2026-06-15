@@ -1,6 +1,6 @@
 {
-  "version": "1.3.0",
+  "version": "1.3.1",
   "download_url": "https://github.com/johnmburke/Amortization_App",
   "archive_url": "https://github.com/johnmburke/Amortization_App/archive/refs/heads/main.zip",
-  "release_notes": "Adds a pywebview desktop wrapper for a native app window around the Streamlit calculator."
+  "release_notes": "Adds a custom application icon for the desktop shortcut, Streamlit page, and pywebview taskbar window."
 }
