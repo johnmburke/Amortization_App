@@ -17,7 +17,7 @@ import streamlit as st
 
 
 SETTINGS_FILE = Path(__file__).with_name("settings.json")
-APP_VERSION = "1.2.4"
+APP_VERSION = "1.2.5"
 APP_REPOSITORY_URL = "https://github.com/johnmburke/Amortization_App"
 APP_VERSION_URLS = [
     "https://raw.githubusercontent.com/johnmburke/Amortization_App/main/version.json",
@@ -128,6 +128,23 @@ def compare_versions(current_version: str, latest_version: str) -> int:
     return 0
 
 
+def get_installed_app_version() -> str:
+    version_file = Path(__file__).with_name("version.json")
+    if not version_file.exists():
+        return APP_VERSION
+
+    try:
+        version_info = json.loads(version_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return APP_VERSION
+
+    installed_version = version_info.get("version")
+    if isinstance(installed_version, str) and installed_version.strip():
+        return installed_version.strip()
+
+    return APP_VERSION
+
+
 def fetch_url_bytes(url: str, timeout: int = 30) -> bytes:
     request = urllib.request.Request(
         url,
@@ -228,7 +245,8 @@ def install_app_update(archive_url: str) -> tuple[bool, str]:
                     (
                         archive_name
                         for archive_name in archive_names
-                        if archive_name.endswith(f"/{update_file}")
+                        if archive_name.count("/") == 1
+                        and archive_name.endswith(f"/{update_file}")
                     ),
                     None,
                 )
@@ -259,7 +277,8 @@ def render_update_checker() -> None:
         return
 
     latest_version = str(update_check["version"])
-    if compare_versions(APP_VERSION, latest_version) >= 0:
+    installed_version = get_installed_app_version()
+    if compare_versions(installed_version, latest_version) >= 0:
         return
 
     archive_url = str(update_check["archive_url"])
@@ -267,7 +286,7 @@ def render_update_checker() -> None:
 
     with st.expander("Application Updates", expanded=True):
         st.warning(f"Version {latest_version} is available.")
-        st.caption(f"Installed version: {APP_VERSION}")
+        st.caption(f"Installed version: {installed_version}")
         if release_notes:
             st.caption(release_notes)
         if st.button("Update", use_container_width=True):

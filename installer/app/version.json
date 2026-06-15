@@ -1,6 +1,6 @@
 {
-  "version": "1.2.4",
+  "version": "1.2.5",
   "download_url": "https://github.com/johnmburke/Amortization_App",
   "archive_url": "https://github.com/johnmburke/Amortization_App/archive/refs/heads/main.zip",
-  "release_notes": "Adds a Principal Paid graph and uses graph-specific final values for final-payment markers."
+  "release_notes": "Makes the updater compare against the installed version file after applying updates."
 }
