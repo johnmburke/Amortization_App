@@ -136,7 +136,7 @@ try {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "run_amortization_app.ps1") -Destination $launcherPath -Force
 
     $shortcutTarget = "powershell.exe"
-    $shortcutArgs = "-ExecutionPolicy Bypass -File `"$launcherPath`""
+    $shortcutArgs = "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$launcherPath`""
     $shell = New-Object -ComObject WScript.Shell
     $shortcut = $shell.CreateShortcut($desktopShortcut)
     $shortcut.TargetPath = $shortcutTarget

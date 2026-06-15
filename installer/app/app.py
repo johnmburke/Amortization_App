@@ -17,7 +17,7 @@ import streamlit as st
 
 
 SETTINGS_FILE = Path(__file__).with_name("settings.json")
-APP_VERSION = "1.2.6"
+APP_VERSION = "1.2.7"
 APP_REPOSITORY_URL = "https://github.com/johnmburke/Amortization_App"
 APP_VERSION_URLS = [
     "https://api.github.com/repos/johnmburke/Amortization_App/contents/version.json?ref=main",
