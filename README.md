@@ -10,7 +10,11 @@ This is a Python application built with Streamlit and a pywebview desktop wrappe
 
 ## Install On Windows
 
-Download and run `AmortizationCalculatorSetup.exe`.
+Download `AmortizationCalculatorSetup.zip`, extract it, and run
+`AmortizationCalculatorSetup.exe`.
+
+The ZIP download is recommended because some browsers, antivirus tools, or OneDrive
+folders block saving raw `.exe` files directly.
 
 The setup executable downloads the latest app files from GitHub during installation,
 preserves any existing `settings.json`, installs the Python package requirements into
