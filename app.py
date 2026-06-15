@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import urllib.error
 import urllib.request
@@ -14,11 +15,13 @@ import streamlit as st
 
 
 SETTINGS_FILE = Path(__file__).with_name("settings.json")
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.1.1"
 APP_REPOSITORY_URL = "https://github.com/johnmburke/Amortization_App"
-APP_VERSION_URL = (
-    "https://raw.githubusercontent.com/johnmburke/Amortization_App/main/version.json"
-)
+APP_VERSION_URLS = [
+    "https://raw.githubusercontent.com/johnmburke/Amortization_App/main/version.json",
+    "https://raw.githubusercontent.com/johnmburke/Amortization_App/refs/heads/main/version.json",
+    "https://api.github.com/repos/johnmburke/Amortization_App/contents/version.json?ref=main",
+]
 DEFAULT_SCHEDULE_NAME = "Default"
 MONTHS = [
     "January",
@@ -121,37 +124,76 @@ def compare_versions(current_version: str, latest_version: str) -> int:
 
 @st.cache_data(ttl=900, show_spinner=False)
 def fetch_latest_app_version() -> dict[str, object]:
-    request = urllib.request.Request(
-        APP_VERSION_URL,
-        headers={"User-Agent": f"AmortizationCalculator/{APP_VERSION}"},
-    )
+    errors: list[str] = []
+    status_codes: list[int] = []
 
-    try:
-        with urllib.request.urlopen(request, timeout=10) as response:
-            version_info = json.loads(response.read().decode("utf-8"))
-    except (
-        OSError,
-        TimeoutError,
-        urllib.error.URLError,
-        json.JSONDecodeError,
-    ) as error:
+    for version_url in APP_VERSION_URLS:
+        request = urllib.request.Request(
+            version_url,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "User-Agent": f"AmortizationCalculator/{APP_VERSION}",
+            },
+        )
+
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                response_data = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as error:
+            errors.append(f"{version_url}: HTTP {error.code}")
+            status_codes.append(error.code)
+            continue
+        except (
+            OSError,
+            TimeoutError,
+            urllib.error.URLError,
+            json.JSONDecodeError,
+        ) as error:
+            errors.append(f"{version_url}: {error}")
+            continue
+
+        if "api.github.com/repos" in version_url:
+            encoded_content = response_data.get("content", "")
+            if response_data.get("encoding") == "base64" and encoded_content:
+                try:
+                    decoded_content = base64.b64decode(encoded_content).decode("utf-8")
+                    version_info = json.loads(decoded_content)
+                except (ValueError, json.JSONDecodeError) as error:
+                    errors.append(f"{version_url}: {error}")
+                    continue
+            else:
+                errors.append(f"{version_url}: version file content was not readable")
+                continue
+        else:
+            version_info = response_data
+
+        latest_version = version_info.get("version")
+        if not isinstance(latest_version, str) or not latest_version.strip():
+            return {
+                "ok": False,
+                "error": "GitHub version file does not include a version number.",
+            }
+
         return {
-            "ok": False,
-            "error": str(error),
+            "ok": True,
+            "version": latest_version.strip(),
+            "download_url": str(version_info.get("download_url", APP_REPOSITORY_URL)),
+            "release_notes": str(version_info.get("release_notes", "")),
         }
 
-    latest_version = version_info.get("version")
-    if not isinstance(latest_version, str) or not latest_version.strip():
+    if 404 in status_codes:
         return {
             "ok": False,
-            "error": "GitHub version file does not include a version number.",
+            "status_code": 404,
+            "error": (
+                "GitHub returned 404 for the update file. Confirm that the "
+                "repository is public and that version.json exists on the main branch."
+            ),
         }
 
     return {
-        "ok": True,
-        "version": latest_version.strip(),
-        "download_url": str(version_info.get("download_url", APP_REPOSITORY_URL)),
-        "release_notes": str(version_info.get("release_notes", "")),
+        "ok": False,
+        "error": "; ".join(errors) if errors else "No update source responded.",
     }
 
 
@@ -172,6 +214,12 @@ def render_update_checker() -> None:
         if not update_check["ok"]:
             st.error("Unable to check for updates right now.")
             st.caption(str(update_check["error"]))
+            if update_check.get("status_code") == 404:
+                st.link_button(
+                    "Open GitHub Repository",
+                    APP_REPOSITORY_URL,
+                    use_container_width=True,
+                )
             return
 
         latest_version = str(update_check["version"])
