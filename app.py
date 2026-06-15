@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -12,6 +14,11 @@ import streamlit as st
 
 
 SETTINGS_FILE = Path(__file__).with_name("settings.json")
+APP_VERSION = "1.1.0"
+APP_REPOSITORY_URL = "https://github.com/johnmburke/Amortization_App"
+APP_VERSION_URL = (
+    "https://raw.githubusercontent.com/johnmburke/Amortization_App/main/version.json"
+)
 DEFAULT_SCHEDULE_NAME = "Default"
 MONTHS = [
     "January",
@@ -86,6 +93,103 @@ def load_settings() -> dict[str, object]:
 def save_settings(settings: dict[str, object]) -> None:
     with SETTINGS_FILE.open("w", encoding="utf-8") as settings_file:
         json.dump(settings, settings_file, indent=2)
+
+
+def version_parts(version: str) -> tuple[int, ...]:
+    parts: list[int] = []
+
+    for part in version.split("."):
+        digits = "".join(character for character in part if character.isdigit())
+        parts.append(int(digits or 0))
+
+    return tuple(parts)
+
+
+def compare_versions(current_version: str, latest_version: str) -> int:
+    current_parts = list(version_parts(current_version))
+    latest_parts = list(version_parts(latest_version))
+    max_length = max(len(current_parts), len(latest_parts))
+    current_parts.extend([0] * (max_length - len(current_parts)))
+    latest_parts.extend([0] * (max_length - len(latest_parts)))
+
+    if current_parts < latest_parts:
+        return -1
+    if current_parts > latest_parts:
+        return 1
+    return 0
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def fetch_latest_app_version() -> dict[str, object]:
+    request = urllib.request.Request(
+        APP_VERSION_URL,
+        headers={"User-Agent": f"AmortizationCalculator/{APP_VERSION}"},
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            version_info = json.loads(response.read().decode("utf-8"))
+    except (
+        OSError,
+        TimeoutError,
+        urllib.error.URLError,
+        json.JSONDecodeError,
+    ) as error:
+        return {
+            "ok": False,
+            "error": str(error),
+        }
+
+    latest_version = version_info.get("version")
+    if not isinstance(latest_version, str) or not latest_version.strip():
+        return {
+            "ok": False,
+            "error": "GitHub version file does not include a version number.",
+        }
+
+    return {
+        "ok": True,
+        "version": latest_version.strip(),
+        "download_url": str(version_info.get("download_url", APP_REPOSITORY_URL)),
+        "release_notes": str(version_info.get("release_notes", "")),
+    }
+
+
+def render_update_checker() -> None:
+    with st.expander("Application Updates", expanded=False):
+        st.caption(f"Installed version: {APP_VERSION}")
+
+        if st.button("Check for Updates", use_container_width=True):
+            fetch_latest_app_version.clear()
+            st.session_state["show_update_check"] = True
+
+        if not st.session_state.get("show_update_check", False):
+            return
+
+        with st.spinner("Checking GitHub for updates..."):
+            update_check = fetch_latest_app_version()
+
+        if not update_check["ok"]:
+            st.error("Unable to check for updates right now.")
+            st.caption(str(update_check["error"]))
+            return
+
+        latest_version = str(update_check["version"])
+        download_url = str(update_check["download_url"])
+        release_notes = str(update_check["release_notes"])
+        comparison = compare_versions(APP_VERSION, latest_version)
+
+        if comparison < 0:
+            st.warning(f"Version {latest_version} is available.")
+            if release_notes:
+                st.caption(release_notes)
+            st.link_button("Open Update Page", download_url, use_container_width=True)
+        elif comparison > 0:
+            st.info(f"You are running version {APP_VERSION}.")
+            st.caption(f"The published version is {latest_version}.")
+        else:
+            st.success("You are up to date.")
+            st.caption(f"Latest version: {latest_version}")
 
 
 def saved_float(
@@ -758,6 +862,8 @@ def main() -> None:
     )
 
     with st.sidebar:
+        render_update_checker()
+
         with st.expander("Saved Payment Schedules", expanded=True):
             if schedule_names:
                 st.selectbox(
