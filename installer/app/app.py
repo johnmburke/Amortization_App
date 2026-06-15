@@ -17,7 +17,7 @@ import streamlit as st
 
 
 SETTINGS_FILE = Path(__file__).with_name("settings.json")
-APP_VERSION = "1.2.1"
+APP_VERSION = "1.2.2"
 APP_REPOSITORY_URL = "https://github.com/johnmburke/Amortization_App"
 APP_VERSION_URLS = [
     "https://raw.githubusercontent.com/johnmburke/Amortization_App/main/version.json",
@@ -733,11 +733,11 @@ def build_amortization_schedule(
     total_paid_this_month = 0.0
     rows: list[dict[str, object]] = []
 
-    def add_schedule_row(month: int) -> None:
+    def add_schedule_row(month: int, row_date: date) -> None:
         rows.append(
             {
                 "Month": month,
-                "Date": add_months(start_date, month),
+                "Date": row_date,
                 "Monthly Payment": f"${total_monthly_payment:,.2f}",
                 "Principal + Interest Payment": round(max(0.0, monthly_payment), 2),
                 "Balance Due": round(balance, 2),
@@ -753,8 +753,10 @@ def build_amortization_schedule(
             }
         )
 
+    initial_balance_date = add_months(start_date, -1)
+    add_schedule_row(0, initial_balance_date)
+
     if total_monthly_payment <= 0:
-        add_schedule_row(0)
         return pd.DataFrame(rows), AmortizationSummary(
             monthly_payment=0.0,
             escrow_payment=escrow_payment,
@@ -772,7 +774,6 @@ def build_amortization_schedule(
         )
 
     if monthly_payment <= 0:
-        add_schedule_row(0)
         return pd.DataFrame(rows), AmortizationSummary(
             monthly_payment=0.0,
             escrow_payment=escrow_payment,
@@ -789,14 +790,11 @@ def build_amortization_schedule(
             status="Total payment must be greater than escrow payment.",
         )
 
-    for month in range(max_months + 1):
-        add_schedule_row(month)
-
-        if balance <= 0:
-            break
-
+    payment_number = 0
+    payment_date = start_date
+    for payment_number in range(1, max_months + 1):
+        payment_date = add_months(start_date, payment_number - 1)
         interest_for_month = balance * monthly_interest_rate
-        payment_date = add_months(start_date, month)
         scheduled_extra_payment = sum(
             float(payment["amount"])
             for payment in recurring_extra_payments
@@ -834,6 +832,10 @@ def build_amortization_schedule(
         total_recurring_extra += recurring_extra_paid_this_month
         total_paid += total_paid_this_month
         balance = max(0.0, balance + interest_for_month - actual_payment)
+        add_schedule_row(payment_number, payment_date)
+
+        if balance <= 0:
+            break
 
     paid_off = balance <= 0
     return pd.DataFrame(rows), AmortizationSummary(
@@ -843,8 +845,8 @@ def build_amortization_schedule(
         recurring_extra_payment=recurring_extra_payment,
         recurring_extra_start_date=recurring_extra_start_date,
         total_recurring_extra_paid=total_recurring_extra,
-        months_to_payoff=month if paid_off else None,
-        final_payment_date=add_months(start_date, month) if paid_off else None,
+        months_to_payoff=payment_number if paid_off else None,
+        final_payment_date=payment_date if paid_off else None,
         total_interest_paid=total_interest,
         total_escrow_paid=total_escrow,
         total_paid=total_paid,
@@ -877,7 +879,7 @@ def add_current_marker(fig: go.Figure, start_date: date) -> None:
         y=1,
         xref="x",
         yref="paper",
-        text="Current balance",
+        text="First payment",
         showarrow=False,
         xanchor="left",
         yanchor="bottom",
@@ -1047,15 +1049,15 @@ def main() -> None:
                 12,
             )
 
-        with st.expander("Start Date", expanded=True):
+        with st.expander("First Payment Date", expanded=True):
             start_month_name = st.selectbox(
-                "Start month",
+                "First payment month",
                 MONTHS,
                 index=default_start_month - 1,
             )
             start_month = MONTHS.index(start_month_name) + 1
             start_year = st.number_input(
-                "Start year",
+                "First payment year",
                 min_value=1900,
                 max_value=2300,
                 value=default_start_year,

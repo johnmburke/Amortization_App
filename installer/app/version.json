@@ -1,6 +1,6 @@
 {
-  "version": "1.2.1",
+  "version": "1.2.2",
   "download_url": "https://github.com/johnmburke/Amortization_App",
   "archive_url": "https://github.com/johnmburke/Amortization_App/archive/refs/heads/main.zip",
-  "release_notes": "Fixes the final-payment graph hover text to show only the actual final payment amount."
+  "release_notes": "Changes the schedule date to mean the first payment month and aligns graph/payment dates."
 }
