@@ -1,6 +1,6 @@
 {
-  "version": "1.3.3",
+  "version": "1.3.4",
   "download_url": "https://github.com/johnmburke/Amortization_App",
   "archive_url": "https://github.com/johnmburke/Amortization_App/archive/refs/heads/main.zip",
-  "release_notes": "Adds a standalone EXE installer that downloads the latest app files from GitHub during installation."
+  "release_notes": "Improves the EXE installer so it can reinstall cleanly when existing app files are already current."
 }

@@ -177,9 +177,21 @@ def archive_member_suffix(member_name: str, marker: str) -> str | None:
 
 
 def write_archive_file(archive: zipfile.ZipFile, member_name: str, destination: Path) -> None:
+    content = archive.read(member_name)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    with archive.open(member_name) as source, destination.open("wb") as target:
-        shutil.copyfileobj(source, target)
+
+    try:
+        if destination.exists() and destination.read_bytes() == content:
+            return
+    except OSError:
+        pass
+
+    try:
+        destination.write_bytes(content)
+    except PermissionError as error:
+        raise PermissionError(
+            f"Could not update {destination.name}. Close {APP_NAME} and run this installer again."
+        ) from error
 
 
 def install_app_files(archive_bytes: bytes) -> None:
