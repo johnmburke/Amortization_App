@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import base64
+import importlib.util
 import io
 import json
 import os
 import subprocess
+import sys
 import urllib.error
 import urllib.request
 import zipfile
@@ -19,7 +21,7 @@ import streamlit as st
 
 
 SETTINGS_FILE = Path(__file__).with_name("settings.json")
-APP_VERSION = "1.2.9"
+APP_VERSION = "1.3.0"
 APP_REPOSITORY_URL = "https://github.com/johnmburke/Amortization_App"
 APP_VERSION_URLS = [
     "https://api.github.com/repos/johnmburke/Amortization_App/contents/version.json?ref=main",
@@ -29,117 +31,160 @@ APP_VERSION_URLS = [
 APP_ARCHIVE_URL = (
     "https://github.com/johnmburke/Amortization_App/archive/refs/heads/main.zip"
 )
-APP_UPDATE_FILES = {"app.py", "requirements.txt", "version.json"}
+APP_UPDATE_FILES = {"app.py", "desktop_launcher.py", "requirements.txt", "version.json"}
 WINDOWS_LAUNCHER_SCRIPT = r'''$ErrorActionPreference = "Stop"
 
 $installRoot = Join-Path $env:LOCALAPPDATA "AmortizationCalculator"
 $appDir = Join-Path $installRoot "app"
 $venvPython = Join-Path $installRoot ".venv\Scripts\python.exe"
-$appFile = Join-Path $appDir "app.py"
-$appPort = 8501
-$appUrl = "http://localhost:$appPort"
+$venvPythonw = Join-Path $installRoot ".venv\Scripts\pythonw.exe"
+$launcherFile = Join-Path $appDir "desktop_launcher.py"
 
-function Wait-ForApp {
-    param([string]$Url)
-
-    for ($attempt = 1; $attempt -le 40; $attempt++) {
-        try {
-            Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 1 | Out-Null
-            return $true
-        }
-        catch {
-            Start-Sleep -Milliseconds 500
-        }
-    }
-
-    return $false
-}
-
-function Get-AppBrowserConnectionCount {
-    param([int]$Port)
-
-    try {
-        $connections = Get-NetTCPConnection `
-            -LocalPort $Port `
-            -State Established `
-            -ErrorAction SilentlyContinue
-
-        if ($connections) {
-            return @($connections).Count
-        }
-    }
-    catch {
-        return 0
-    }
-
-    return 0
-}
-
-function Wait-ForBrowserDisconnect {
-    param([int]$Port)
-
-    $sawBrowserConnection = $false
-    $emptyChecks = 0
-
-    while ($true) {
-        $connectionCount = Get-AppBrowserConnectionCount -Port $Port
-
-        if ($connectionCount -gt 0) {
-            $sawBrowserConnection = $true
-            $emptyChecks = 0
-        }
-        elseif ($sawBrowserConnection) {
-            $emptyChecks += 1
-            if ($emptyChecks -ge 8) {
-                return
-            }
-        }
-
-        Start-Sleep -Seconds 1
-    }
-}
-
-if (-not (Test-Path -LiteralPath $venvPython)) {
+if (-not (Test-Path -LiteralPath $launcherFile)) {
     exit 1
 }
 
-if (-not (Test-Path -LiteralPath $appFile)) {
+if (Test-Path -LiteralPath $venvPythonw) {
+    $pythonLauncher = $venvPythonw
+}
+elseif (Test-Path -LiteralPath $venvPython) {
+    $pythonLauncher = $venvPython
+}
+else {
     exit 1
 }
 
-$streamlitArgs = @(
-    "-m",
-    "streamlit",
-    "run",
-    $appFile,
-    "--server.port=$appPort",
-    "--server.headless=true",
-    "--browser.gatherUsageStats=false"
-)
-
-$streamlitProcess = Start-Process `
-    -FilePath $venvPython `
-    -ArgumentList $streamlitArgs `
+Start-Process `
+    -FilePath $pythonLauncher `
+    -ArgumentList @($launcherFile) `
     -WorkingDirectory $appDir `
     -WindowStyle Hidden `
-    -PassThru
-
-try {
-    Wait-ForApp -Url $appUrl | Out-Null
-    Start-Process $appUrl
-    Wait-ForBrowserDisconnect -Port $appPort
-}
-finally {
-    if ($streamlitProcess -and -not $streamlitProcess.HasExited) {
-        Stop-Process -Id $streamlitProcess.Id -Force
-    }
-}
 '''
 WINDOWS_LAUNCHER_VBS = r'''Set shell = CreateObject("WScript.Shell")
 localAppData = shell.ExpandEnvironmentStrings("%LOCALAPPDATA%")
 launcherPath = localAppData & "\AmortizationCalculator\run_amortization_app.ps1"
 command = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File """ & launcherPath & """"
 shell.Run command, 0, False
+'''
+DESKTOP_LAUNCHER_SCRIPT = r'''from __future__ import annotations
+
+import ctypes
+import socket
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+
+APP_NAME = "Amortization Calculator"
+APP_FILE = Path(__file__).with_name("app.py")
+
+
+def show_error(message: str) -> None:
+    try:
+        ctypes.windll.user32.MessageBoxW(None, message, APP_NAME, 0x10)
+    except Exception:
+        pass
+
+
+def find_available_port(start_port: int = 8501) -> int:
+    for port in range(start_port, start_port + 100):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                probe.bind(("127.0.0.1", port))
+            except OSError:
+                continue
+            return port
+
+    raise RuntimeError("Could not find an available local port.")
+
+
+def wait_for_app(url: str, timeout_seconds: int = 30) -> bool:
+    deadline = time.time() + timeout_seconds
+
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=1):
+                return True
+        except (OSError, urllib.error.URLError):
+            time.sleep(0.5)
+
+    return False
+
+
+def start_streamlit(port: int) -> subprocess.Popen:
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    return subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "streamlit",
+            "run",
+            str(APP_FILE),
+            "--server.address=127.0.0.1",
+            f"--server.port={port}",
+            "--server.headless=true",
+            "--browser.gatherUsageStats=false",
+        ],
+        cwd=APP_FILE.parent,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=creationflags,
+    )
+
+
+def stop_process(process: subprocess.Popen) -> None:
+    if process.poll() is not None:
+        return
+
+    process.terminate()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+
+
+def main() -> None:
+    if not APP_FILE.exists():
+        show_error("Could not find app.py. Please reinstall the application.")
+        return
+
+    try:
+        import webview
+    except ImportError:
+        show_error("pywebview is not installed. Please run the installer again.")
+        return
+
+    try:
+        port = find_available_port()
+        app_url = f"http://127.0.0.1:{port}"
+        streamlit_process = start_streamlit(port)
+    except Exception as error:
+        show_error(f"The app could not be started.\n\n{error}")
+        return
+
+    try:
+        if not wait_for_app(app_url):
+            show_error("The app did not finish starting. Please try again.")
+            return
+
+        webview.create_window(
+            APP_NAME,
+            app_url,
+            width=1280,
+            height=850,
+            min_size=(900, 650),
+        )
+        webview.start()
+    finally:
+        stop_process(streamlit_process)
+
+
+if __name__ == "__main__":
+    main()
 '''
 DEFAULT_SCHEDULE_NAME = "Default"
 MONTHS = [
@@ -232,6 +277,34 @@ def powershell_quote(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+def ensure_pywebview_available(requirements_file: Path) -> bool:
+    if importlib.util.find_spec("webview") is not None:
+        return False
+    if not requirements_file.exists():
+        return False
+
+    try:
+        creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "-r",
+                str(requirements_file),
+            ],
+            check=False,
+            creationflags=creation_flags,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        return False
+
+    return importlib.util.find_spec("webview") is not None
+
+
 def ensure_windows_launcher_current() -> None:
     if os.name != "nt":
         return
@@ -252,10 +325,18 @@ def ensure_windows_launcher_current() -> None:
 
     launcher_path = install_root / "run_amortization_app.ps1"
     launcher_vbs_path = install_root / "launch_amortization_app.vbs"
+    desktop_launcher_path = installed_app_dir / "desktop_launcher.py"
     launcher_changed = write_text_if_changed(launcher_path, WINDOWS_LAUNCHER_SCRIPT)
     launcher_vbs_changed = write_text_if_changed(
         launcher_vbs_path,
         WINDOWS_LAUNCHER_VBS,
+    )
+    desktop_launcher_changed = write_text_if_changed(
+        desktop_launcher_path,
+        DESKTOP_LAUNCHER_SCRIPT,
+    )
+    pywebview_installed = ensure_pywebview_available(
+        installed_app_dir / "requirements.txt"
     )
 
     shortcut_args = f'//B //Nologo "{launcher_vbs_path}"'
@@ -292,7 +373,12 @@ def ensure_windows_launcher_current() -> None:
     except OSError:
         return
 
-    if launcher_changed or launcher_vbs_changed:
+    if (
+        launcher_changed
+        or launcher_vbs_changed
+        or desktop_launcher_changed
+        or pywebview_installed
+    ):
         st.session_state["launcher_repaired"] = True
 
 
@@ -465,6 +551,27 @@ def install_app_update(archive_url: str) -> tuple[bool, str]:
 
     if "app.py" not in updated_files:
         return False, "The downloaded update did not include app.py."
+
+    if "requirements.txt" in updated_files:
+        requirements_file = install_folder / "requirements.txt"
+        try:
+            creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "install",
+                    "-r",
+                    str(requirements_file),
+                ],
+                check=False,
+                creationflags=creation_flags,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except OSError:
+            pass
 
     return True, f"Updated {', '.join(sorted(updated_files))}."
 
