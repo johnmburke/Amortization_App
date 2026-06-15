@@ -3,6 +3,8 @@ from __future__ import annotations
 import base64
 import io
 import json
+import os
+import subprocess
 import urllib.error
 import urllib.request
 import zipfile
@@ -17,7 +19,7 @@ import streamlit as st
 
 
 SETTINGS_FILE = Path(__file__).with_name("settings.json")
-APP_VERSION = "1.2.7"
+APP_VERSION = "1.2.8"
 APP_REPOSITORY_URL = "https://github.com/johnmburke/Amortization_App"
 APP_VERSION_URLS = [
     "https://api.github.com/repos/johnmburke/Amortization_App/contents/version.json?ref=main",
@@ -28,6 +30,143 @@ APP_ARCHIVE_URL = (
     "https://github.com/johnmburke/Amortization_App/archive/refs/heads/main.zip"
 )
 APP_UPDATE_FILES = {"app.py", "requirements.txt", "version.json"}
+WINDOWS_LAUNCHER_SCRIPT = r'''$ErrorActionPreference = "Stop"
+
+$installRoot = Join-Path $env:LOCALAPPDATA "AmortizationCalculator"
+$appDir = Join-Path $installRoot "app"
+$venvPython = Join-Path $installRoot ".venv\Scripts\python.exe"
+$appFile = Join-Path $appDir "app.py"
+$appPort = 8501
+$appUrl = "http://localhost:$appPort"
+$browserProfile = Join-Path $installRoot "browser_profile"
+
+function Find-AppBrowser {
+    $browserPaths = @()
+
+    if (${env:ProgramFiles(x86)}) {
+        $browserPaths += Join-Path ${env:ProgramFiles(x86)} "Microsoft\Edge\Application\msedge.exe"
+        $browserPaths += Join-Path ${env:ProgramFiles(x86)} "Google\Chrome\Application\chrome.exe"
+    }
+
+    if ($env:ProgramFiles) {
+        $browserPaths += Join-Path $env:ProgramFiles "Microsoft\Edge\Application\msedge.exe"
+        $browserPaths += Join-Path $env:ProgramFiles "Google\Chrome\Application\chrome.exe"
+    }
+
+    foreach ($browserPath in $browserPaths) {
+        if (Test-Path -LiteralPath $browserPath) {
+            return $browserPath
+        }
+    }
+
+    $edgeCommand = Get-Command msedge.exe -ErrorAction SilentlyContinue
+    if ($edgeCommand) {
+        return $edgeCommand.Source
+    }
+
+    $chromeCommand = Get-Command chrome.exe -ErrorAction SilentlyContinue
+    if ($chromeCommand) {
+        return $chromeCommand.Source
+    }
+
+    return $null
+}
+
+function Wait-ForApp {
+    param([string]$Url)
+
+    for ($attempt = 1; $attempt -le 40; $attempt++) {
+        try {
+            Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 1 | Out-Null
+            return $true
+        }
+        catch {
+            Start-Sleep -Milliseconds 500
+        }
+    }
+
+    return $false
+}
+
+function Wait-ForBrowserProfileExit {
+    param([string]$ProfilePath)
+
+    Start-Sleep -Seconds 1
+
+    while ($true) {
+        $browserProcesses = Get-CimInstance Win32_Process |
+            Where-Object {
+                $_.CommandLine -and
+                $_.CommandLine.Contains($ProfilePath)
+            }
+
+        if (-not $browserProcesses) {
+            return
+        }
+
+        Start-Sleep -Seconds 1
+    }
+}
+
+if (-not (Test-Path -LiteralPath $venvPython)) {
+    exit 1
+}
+
+if (-not (Test-Path -LiteralPath $appFile)) {
+    exit 1
+}
+
+New-Item -ItemType Directory -Force -Path $browserProfile | Out-Null
+
+$streamlitArgs = @(
+    "-m",
+    "streamlit",
+    "run",
+    $appFile,
+    "--server.port=$appPort",
+    "--server.headless=true",
+    "--browser.gatherUsageStats=false"
+)
+
+$streamlitProcess = Start-Process `
+    -FilePath $venvPython `
+    -ArgumentList $streamlitArgs `
+    -WorkingDirectory $appDir `
+    -WindowStyle Hidden `
+    -PassThru
+
+try {
+    Wait-ForApp -Url $appUrl | Out-Null
+
+    $browserPath = Find-AppBrowser
+    if ($browserPath) {
+        Start-Process `
+            -FilePath $browserPath `
+            -ArgumentList @(
+                "--app=$appUrl",
+                "--user-data-dir=$browserProfile",
+                "--no-first-run"
+            ) | Out-Null
+
+        Wait-ForBrowserProfileExit -ProfilePath $browserProfile
+    }
+    else {
+        Start-Process $appUrl
+        Wait-Process -Id $streamlitProcess.Id
+    }
+}
+finally {
+    if ($streamlitProcess -and -not $streamlitProcess.HasExited) {
+        Stop-Process -Id $streamlitProcess.Id -Force
+    }
+}
+'''
+WINDOWS_LAUNCHER_VBS = r'''Set shell = CreateObject("WScript.Shell")
+localAppData = shell.ExpandEnvironmentStrings("%LOCALAPPDATA%")
+launcherPath = localAppData & "\AmortizationCalculator\run_amortization_app.ps1"
+command = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File """ & launcherPath & """"
+shell.Run command, 0, False
+'''
 DEFAULT_SCHEDULE_NAME = "Default"
 MONTHS = [
     "January",
@@ -102,6 +241,85 @@ def load_settings() -> dict[str, object]:
 def save_settings(settings: dict[str, object]) -> None:
     with SETTINGS_FILE.open("w", encoding="utf-8") as settings_file:
         json.dump(settings, settings_file, indent=2)
+
+
+def write_text_if_changed(path: Path, content: str) -> bool:
+    try:
+        if path.exists() and path.read_text(encoding="utf-8") == content:
+            return False
+        path.write_text(content, encoding="utf-8")
+    except OSError:
+        return False
+
+    return True
+
+
+def powershell_quote(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def ensure_windows_launcher_current() -> None:
+    if os.name != "nt":
+        return
+
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if not local_app_data:
+        return
+
+    install_root = Path(local_app_data) / "AmortizationCalculator"
+    installed_app_dir = install_root / "app"
+
+    try:
+        running_app_dir = Path(__file__).resolve().parent
+        if running_app_dir != installed_app_dir.resolve():
+            return
+    except OSError:
+        return
+
+    launcher_path = install_root / "run_amortization_app.ps1"
+    launcher_vbs_path = install_root / "launch_amortization_app.vbs"
+    launcher_changed = write_text_if_changed(launcher_path, WINDOWS_LAUNCHER_SCRIPT)
+    launcher_vbs_changed = write_text_if_changed(
+        launcher_vbs_path,
+        WINDOWS_LAUNCHER_VBS,
+    )
+
+    shortcut_args = f'//B //Nologo "{launcher_vbs_path}"'
+    ps_command = "\n".join(
+        [
+            "$shortcutPath = Join-Path ([Environment]::GetFolderPath('Desktop')) "
+            "'Amortization Calculator.lnk'",
+            "$shell = New-Object -ComObject WScript.Shell",
+            "$shortcut = $shell.CreateShortcut($shortcutPath)",
+            "$shortcut.TargetPath = 'wscript.exe'",
+            f"$shortcut.Arguments = {powershell_quote(shortcut_args)}",
+            f"$shortcut.WorkingDirectory = {powershell_quote(str(install_root))}",
+            '$shortcut.IconLocation = "$env:SystemRoot\\System32\\shell32.dll,44"',
+            "$shortcut.Save()",
+        ]
+    )
+
+    try:
+        creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        subprocess.run(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                ps_command,
+            ],
+            check=False,
+            creationflags=creation_flags,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        return
+
+    if launcher_changed or launcher_vbs_changed:
+        st.session_state["launcher_repaired"] = True
 
 
 def version_parts(version: str) -> tuple[int, ...]:
@@ -955,11 +1173,14 @@ def request_schedule_switch() -> None:
 
 def main() -> None:
     st.set_page_config(page_title="Amortization Line Graph Calculator", layout="wide")
+    ensure_windows_launcher_current()
 
     st.title("Amortization Line Graph Calculator")
     update_message = st.session_state.pop("update_message", "")
     if update_message:
         st.success(f"Update installed. {update_message}")
+    if st.session_state.pop("launcher_repaired", False):
+        st.success("Launcher updated. Use the desktop shortcut for hidden startup.")
 
     saved_settings = load_settings()
     saved_schedules = get_saved_schedules(saved_settings)

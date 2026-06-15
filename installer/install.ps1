@@ -4,6 +4,7 @@ $appName = "Amortization Calculator"
 $installRoot = Join-Path $env:LOCALAPPDATA "AmortizationCalculator"
 $appDir = Join-Path $installRoot "app"
 $launcherPath = Join-Path $installRoot "run_amortization_app.ps1"
+$launcherVbsPath = Join-Path $installRoot "launch_amortization_app.vbs"
 $desktopShortcut = Join-Path ([Environment]::GetFolderPath("Desktop")) "$appName.lnk"
 $sourceAppDir = Join-Path $PSScriptRoot "app"
 $minimumPythonVersion = [Version]"3.10.0"
@@ -134,9 +135,10 @@ try {
     & $venvPython -m pip install -r (Join-Path $appDir "requirements.txt")
 
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "run_amortization_app.ps1") -Destination $launcherPath -Force
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot "launch_amortization_app.vbs") -Destination $launcherVbsPath -Force
 
-    $shortcutTarget = "powershell.exe"
-    $shortcutArgs = "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$launcherPath`""
+    $shortcutTarget = "wscript.exe"
+    $shortcutArgs = "//B //Nologo `"$launcherVbsPath`""
     $shell = New-Object -ComObject WScript.Shell
     $shortcut = $shell.CreateShortcut($desktopShortcut)
     $shortcut.TargetPath = $shortcutTarget

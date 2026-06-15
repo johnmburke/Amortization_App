@@ -9,17 +9,32 @@ $appUrl = "http://localhost:$appPort"
 $browserProfile = Join-Path $installRoot "browser_profile"
 
 function Find-AppBrowser {
-    $browserPaths = @(
-        (Join-Path ${env:ProgramFiles(x86)} "Microsoft\Edge\Application\msedge.exe"),
-        (Join-Path $env:ProgramFiles "Microsoft\Edge\Application\msedge.exe"),
-        (Join-Path ${env:ProgramFiles(x86)} "Google\Chrome\Application\chrome.exe"),
-        (Join-Path $env:ProgramFiles "Google\Chrome\Application\chrome.exe")
-    )
+    $browserPaths = @()
+
+    if (${env:ProgramFiles(x86)}) {
+        $browserPaths += Join-Path ${env:ProgramFiles(x86)} "Microsoft\Edge\Application\msedge.exe"
+        $browserPaths += Join-Path ${env:ProgramFiles(x86)} "Google\Chrome\Application\chrome.exe"
+    }
+
+    if ($env:ProgramFiles) {
+        $browserPaths += Join-Path $env:ProgramFiles "Microsoft\Edge\Application\msedge.exe"
+        $browserPaths += Join-Path $env:ProgramFiles "Google\Chrome\Application\chrome.exe"
+    }
 
     foreach ($browserPath in $browserPaths) {
         if (Test-Path -LiteralPath $browserPath) {
             return $browserPath
         }
+    }
+
+    $edgeCommand = Get-Command msedge.exe -ErrorAction SilentlyContinue
+    if ($edgeCommand) {
+        return $edgeCommand.Source
+    }
+
+    $chromeCommand = Get-Command chrome.exe -ErrorAction SilentlyContinue
+    if ($chromeCommand) {
+        return $chromeCommand.Source
     }
 
     return $null
