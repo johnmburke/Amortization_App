@@ -17,7 +17,7 @@ import streamlit as st
 
 
 SETTINGS_FILE = Path(__file__).with_name("settings.json")
-APP_VERSION = "1.2.3"
+APP_VERSION = "1.2.4"
 APP_REPOSITORY_URL = "https://github.com/johnmburke/Amortization_App"
 APP_VERSION_URLS = [
     "https://raw.githubusercontent.com/johnmburke/Amortization_App/main/version.json",
@@ -723,11 +723,13 @@ def build_amortization_schedule(
     )
     balance = starting_balance
     total_interest = 0.0
+    total_principal = 0.0
     total_escrow = 0.0
     total_paid = 0.0
     total_recurring_extra = 0.0
     interest_paid_this_month = 0.0
     principal_paid_this_month = 0.0
+    balance_due_before_payment = 0.0
     escrow_paid_this_month = 0.0
     recurring_extra_paid_this_month = 0.0
     total_paid_this_month = 0.0
@@ -741,7 +743,9 @@ def build_amortization_schedule(
                 "Monthly Payment": f"${total_monthly_payment:,.2f}",
                 "Principal + Interest Payment": round(max(0.0, monthly_payment), 2),
                 "Balance Due": round(balance, 2),
+                "Balance Due Before Payment": round(balance_due_before_payment, 2),
                 "Interest Paid": round(total_interest, 2),
+                "Principal Paid": round(total_principal, 2),
                 "Interest Paid This Month": round(interest_paid_this_month, 2),
                 "Principal Paid This Month": round(principal_paid_this_month, 2),
                 "Escrow Payment": round(escrow_paid_this_month, 2),
@@ -821,13 +825,15 @@ def build_amortization_schedule(
                 status="Payment after escrow does not cover monthly interest.",
             )
 
-        actual_payment = min(payment_available_for_loan, balance + interest_for_month)
+        balance_due_before_payment = balance + interest_for_month
+        actual_payment = min(payment_available_for_loan, balance_due_before_payment)
         interest_paid_this_month = interest_for_month
         principal_paid_this_month = actual_payment - interest_for_month
         escrow_paid_this_month = escrow_payment
         recurring_extra_paid_this_month = max(0.0, actual_payment - monthly_payment)
         total_paid_this_month = actual_payment + escrow_payment
         total_interest += interest_for_month
+        total_principal += principal_paid_this_month
         total_escrow += escrow_payment
         total_recurring_extra += recurring_extra_paid_this_month
         total_paid += total_paid_this_month
@@ -886,23 +892,28 @@ def add_current_marker(fig: go.Figure, start_date: date) -> None:
     )
 
 
-def add_final_payment_markers(fig: go.Figure, schedules: pd.DataFrame, y_column: str) -> None:
+def add_final_payment_markers(
+    fig: go.Figure,
+    schedules: pd.DataFrame,
+    y_column: str,
+    final_value_column: str,
+    final_value_label: str,
+) -> None:
     final_points = schedules[schedules["Balance Due"].eq(0)].groupby("Monthly Payment").head(1)
     if final_points.empty:
         return
 
     final_points = final_points.copy()
-    final_points["Final Payment Amount"] = final_points["Total Monthly Payment"].map(
-        money
-    )
+    final_points["Final Value"] = final_points[final_value_column].map(money)
+    final_points["Final Label"] = final_value_label
 
     fig.add_trace(
         go.Scatter(
             x=final_points["Date"],
             y=final_points[y_column],
-            customdata=final_points[["Final Payment Amount"]],
-            text=final_points["Monthly Payment"] + " final",
-            hovertemplate="Final payment: %{customdata[0]}<extra></extra>",
+            customdata=final_points[["Final Value", "Final Label"]],
+            text=final_points["Final Value"] + " final",
+            hovertemplate="%{customdata[1]}: %{customdata[0]}<extra></extra>",
             mode="markers+text",
             name="Final payment",
             textposition="top center",
@@ -1488,8 +1499,13 @@ def main() -> None:
 
     all_schedules = pd.concat(schedules, ignore_index=True)
 
-    balance_tab, interest_tab, payment_tab = st.tabs(
-        ["Balance Due", "Interest Paid", "Total Monthly Payment"]
+    balance_tab, principal_tab, interest_tab, payment_tab = st.tabs(
+        [
+            "Balance Due",
+            "Principal Paid",
+            "Interest Paid",
+            "Total Monthly Payment",
+        ]
     )
 
     with balance_tab:
@@ -1501,9 +1517,34 @@ def main() -> None:
             title="Balance Due Over Time",
         )
         add_current_marker(balance_fig, start_date)
-        add_final_payment_markers(balance_fig, all_schedules, "Balance Due")
+        add_final_payment_markers(
+            balance_fig,
+            all_schedules,
+            "Balance Due",
+            "Balance Due Before Payment",
+            "Final balance due before payoff",
+        )
         balance_fig.update_layout(yaxis_tickprefix="$", hovermode="x unified")
         st.plotly_chart(balance_fig, use_container_width=True)
+
+    with principal_tab:
+        principal_fig = px.line(
+            all_schedules,
+            x="Date",
+            y="Principal Paid",
+            color="Monthly Payment",
+            title="Cumulative Principal Paid Over Time",
+        )
+        add_current_marker(principal_fig, start_date)
+        add_final_payment_markers(
+            principal_fig,
+            all_schedules,
+            "Principal Paid",
+            "Principal Paid",
+            "Final principal paid",
+        )
+        principal_fig.update_layout(yaxis_tickprefix="$", hovermode="x unified")
+        st.plotly_chart(principal_fig, use_container_width=True)
 
     with interest_tab:
         interest_fig = px.line(
@@ -1514,7 +1555,13 @@ def main() -> None:
             title="Cumulative Interest Paid Over Time",
         )
         add_current_marker(interest_fig, start_date)
-        add_final_payment_markers(interest_fig, all_schedules, "Interest Paid")
+        add_final_payment_markers(
+            interest_fig,
+            all_schedules,
+            "Interest Paid",
+            "Interest Paid",
+            "Final interest paid",
+        )
         interest_fig.update_layout(yaxis_tickprefix="$", hovermode="x unified")
         st.plotly_chart(interest_fig, use_container_width=True)
 
@@ -1527,7 +1574,13 @@ def main() -> None:
             title="Total Monthly Payment Over Time",
         )
         add_current_marker(payment_fig, start_date)
-        add_final_payment_markers(payment_fig, all_schedules, "Total Monthly Payment")
+        add_final_payment_markers(
+            payment_fig,
+            all_schedules,
+            "Total Monthly Payment",
+            "Total Monthly Payment",
+            "Final payment",
+        )
         payment_fig.update_layout(yaxis_tickprefix="$", hovermode="x unified")
         st.plotly_chart(payment_fig, use_container_width=True)
 

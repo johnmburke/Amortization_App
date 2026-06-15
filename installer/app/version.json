@@ -1,6 +1,6 @@
 {
-  "version": "1.2.3",
+  "version": "1.2.4",
   "download_url": "https://github.com/johnmburke/Amortization_App",
   "archive_url": "https://github.com/johnmburke/Amortization_App/archive/refs/heads/main.zip",
-  "release_notes": "Leaves payment amount fields blank in the breakdown table for the starting balance row."
+  "release_notes": "Adds a Principal Paid graph and uses graph-specific final values for final-payment markers."
 }
