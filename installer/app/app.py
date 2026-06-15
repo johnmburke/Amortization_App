@@ -19,7 +19,7 @@ import streamlit as st
 
 
 SETTINGS_FILE = Path(__file__).with_name("settings.json")
-APP_VERSION = "1.2.8"
+APP_VERSION = "1.2.9"
 APP_REPOSITORY_URL = "https://github.com/johnmburke/Amortization_App"
 APP_VERSION_URLS = [
     "https://api.github.com/repos/johnmburke/Amortization_App/contents/version.json?ref=main",
@@ -38,39 +38,6 @@ $venvPython = Join-Path $installRoot ".venv\Scripts\python.exe"
 $appFile = Join-Path $appDir "app.py"
 $appPort = 8501
 $appUrl = "http://localhost:$appPort"
-$browserProfile = Join-Path $installRoot "browser_profile"
-
-function Find-AppBrowser {
-    $browserPaths = @()
-
-    if (${env:ProgramFiles(x86)}) {
-        $browserPaths += Join-Path ${env:ProgramFiles(x86)} "Microsoft\Edge\Application\msedge.exe"
-        $browserPaths += Join-Path ${env:ProgramFiles(x86)} "Google\Chrome\Application\chrome.exe"
-    }
-
-    if ($env:ProgramFiles) {
-        $browserPaths += Join-Path $env:ProgramFiles "Microsoft\Edge\Application\msedge.exe"
-        $browserPaths += Join-Path $env:ProgramFiles "Google\Chrome\Application\chrome.exe"
-    }
-
-    foreach ($browserPath in $browserPaths) {
-        if (Test-Path -LiteralPath $browserPath) {
-            return $browserPath
-        }
-    }
-
-    $edgeCommand = Get-Command msedge.exe -ErrorAction SilentlyContinue
-    if ($edgeCommand) {
-        return $edgeCommand.Source
-    }
-
-    $chromeCommand = Get-Command chrome.exe -ErrorAction SilentlyContinue
-    if ($chromeCommand) {
-        return $chromeCommand.Source
-    }
-
-    return $null
-}
 
 function Wait-ForApp {
     param([string]$Url)
@@ -88,20 +55,44 @@ function Wait-ForApp {
     return $false
 }
 
-function Wait-ForBrowserProfileExit {
-    param([string]$ProfilePath)
+function Get-AppBrowserConnectionCount {
+    param([int]$Port)
 
-    Start-Sleep -Seconds 1
+    try {
+        $connections = Get-NetTCPConnection `
+            -LocalPort $Port `
+            -State Established `
+            -ErrorAction SilentlyContinue
+
+        if ($connections) {
+            return @($connections).Count
+        }
+    }
+    catch {
+        return 0
+    }
+
+    return 0
+}
+
+function Wait-ForBrowserDisconnect {
+    param([int]$Port)
+
+    $sawBrowserConnection = $false
+    $emptyChecks = 0
 
     while ($true) {
-        $browserProcesses = Get-CimInstance Win32_Process |
-            Where-Object {
-                $_.CommandLine -and
-                $_.CommandLine.Contains($ProfilePath)
-            }
+        $connectionCount = Get-AppBrowserConnectionCount -Port $Port
 
-        if (-not $browserProcesses) {
-            return
+        if ($connectionCount -gt 0) {
+            $sawBrowserConnection = $true
+            $emptyChecks = 0
+        }
+        elseif ($sawBrowserConnection) {
+            $emptyChecks += 1
+            if ($emptyChecks -ge 8) {
+                return
+            }
         }
 
         Start-Sleep -Seconds 1
@@ -115,8 +106,6 @@ if (-not (Test-Path -LiteralPath $venvPython)) {
 if (-not (Test-Path -LiteralPath $appFile)) {
     exit 1
 }
-
-New-Item -ItemType Directory -Force -Path $browserProfile | Out-Null
 
 $streamlitArgs = @(
     "-m",
@@ -137,23 +126,8 @@ $streamlitProcess = Start-Process `
 
 try {
     Wait-ForApp -Url $appUrl | Out-Null
-
-    $browserPath = Find-AppBrowser
-    if ($browserPath) {
-        Start-Process `
-            -FilePath $browserPath `
-            -ArgumentList @(
-                "--app=$appUrl",
-                "--user-data-dir=$browserProfile",
-                "--no-first-run"
-            ) | Out-Null
-
-        Wait-ForBrowserProfileExit -ProfilePath $browserProfile
-    }
-    else {
-        Start-Process $appUrl
-        Wait-Process -Id $streamlitProcess.Id
-    }
+    Start-Process $appUrl
+    Wait-ForBrowserDisconnect -Port $appPort
 }
 finally {
     if ($streamlitProcess -and -not $streamlitProcess.HasExited) {

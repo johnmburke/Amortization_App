@@ -1,6 +1,6 @@
 {
-  "version": "1.2.8",
+  "version": "1.2.9",
   "download_url": "https://github.com/johnmburke/Amortization_App",
   "archive_url": "https://github.com/johnmburke/Amortization_App/archive/refs/heads/main.zip",
-  "release_notes": "Repairs the installed launcher and desktop shortcut after in-app updates."
+  "release_notes": "Uses the computer's default browser and stops the app after the browser disconnects."
 }
