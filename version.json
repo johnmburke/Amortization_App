@@ -1,5 +1,6 @@
 {
-  "version": "1.1.2",
+  "version": "1.2.0",
   "download_url": "https://github.com/johnmburke/Amortization_App",
-  "release_notes": "Shows the Application Updates section only when a newer version is available."
+  "archive_url": "https://github.com/johnmburke/Amortization_App/archive/refs/heads/main.zip",
+  "release_notes": "Adds an Update button that downloads and installs the latest app files."
 }

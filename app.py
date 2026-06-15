@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
 import urllib.error
 import urllib.request
+import zipfile
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -15,13 +17,17 @@ import streamlit as st
 
 
 SETTINGS_FILE = Path(__file__).with_name("settings.json")
-APP_VERSION = "1.1.2"
+APP_VERSION = "1.2.0"
 APP_REPOSITORY_URL = "https://github.com/johnmburke/Amortization_App"
 APP_VERSION_URLS = [
     "https://raw.githubusercontent.com/johnmburke/Amortization_App/main/version.json",
     "https://raw.githubusercontent.com/johnmburke/Amortization_App/refs/heads/main/version.json",
     "https://api.github.com/repos/johnmburke/Amortization_App/contents/version.json?ref=main",
 ]
+APP_ARCHIVE_URL = (
+    "https://github.com/johnmburke/Amortization_App/archive/refs/heads/main.zip"
+)
+APP_UPDATE_FILES = {"app.py", "requirements.txt", "version.json"}
 DEFAULT_SCHEDULE_NAME = "Default"
 MONTHS = [
     "January",
@@ -122,6 +128,16 @@ def compare_versions(current_version: str, latest_version: str) -> int:
     return 0
 
 
+def fetch_url_bytes(url: str, timeout: int = 30) -> bytes:
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": f"AmortizationCalculator/{APP_VERSION}"},
+    )
+
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return response.read()
+
+
 @st.cache_data(ttl=900, show_spinner=False)
 def fetch_latest_app_version() -> dict[str, object]:
     errors: list[str] = []
@@ -178,6 +194,7 @@ def fetch_latest_app_version() -> dict[str, object]:
             "ok": True,
             "version": latest_version.strip(),
             "download_url": str(version_info.get("download_url", APP_REPOSITORY_URL)),
+            "archive_url": str(version_info.get("archive_url", APP_ARCHIVE_URL)),
             "release_notes": str(version_info.get("release_notes", "")),
         }
 
@@ -197,6 +214,45 @@ def fetch_latest_app_version() -> dict[str, object]:
     }
 
 
+def install_app_update(archive_url: str) -> tuple[bool, str]:
+    install_folder = Path(__file__).resolve().parent
+
+    try:
+        archive_bytes = fetch_url_bytes(archive_url)
+        with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
+            archive_names = archive.namelist()
+            updated_files = []
+
+            for update_file in APP_UPDATE_FILES:
+                matching_name = next(
+                    (
+                        archive_name
+                        for archive_name in archive_names
+                        if archive_name.endswith(f"/{update_file}")
+                    ),
+                    None,
+                )
+                if matching_name is None:
+                    continue
+
+                destination = install_folder / update_file
+                destination.write_bytes(archive.read(matching_name))
+                updated_files.append(update_file)
+    except (
+        OSError,
+        TimeoutError,
+        urllib.error.URLError,
+        urllib.error.HTTPError,
+        zipfile.BadZipFile,
+    ) as error:
+        return False, str(error)
+
+    if "app.py" not in updated_files:
+        return False, "The downloaded update did not include app.py."
+
+    return True, f"Updated {', '.join(sorted(updated_files))}."
+
+
 def render_update_checker() -> None:
     update_check = fetch_latest_app_version()
     if not update_check["ok"]:
@@ -206,7 +262,7 @@ def render_update_checker() -> None:
     if compare_versions(APP_VERSION, latest_version) >= 0:
         return
 
-    download_url = str(update_check["download_url"])
+    archive_url = str(update_check["archive_url"])
     release_notes = str(update_check["release_notes"])
 
     with st.expander("Application Updates", expanded=True):
@@ -214,7 +270,18 @@ def render_update_checker() -> None:
         st.caption(f"Installed version: {APP_VERSION}")
         if release_notes:
             st.caption(release_notes)
-        st.link_button("Open Update Page", download_url, use_container_width=True)
+        if st.button("Update", use_container_width=True):
+            with st.spinner("Downloading and installing the update..."):
+                update_installed, update_message = install_app_update(archive_url)
+
+            if not update_installed:
+                st.error("The update could not be installed.")
+                st.caption(update_message)
+                return
+
+            fetch_latest_app_version.clear()
+            st.session_state["update_message"] = update_message
+            st.rerun()
 
 
 def saved_float(
@@ -845,6 +912,9 @@ def main() -> None:
     st.set_page_config(page_title="Amortization Line Graph Calculator", layout="wide")
 
     st.title("Amortization Line Graph Calculator")
+    update_message = st.session_state.pop("update_message", "")
+    if update_message:
+        st.success(f"Update installed. {update_message}")
 
     saved_settings = load_settings()
     saved_schedules = get_saved_schedules(saved_settings)
