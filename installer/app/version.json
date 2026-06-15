@@ -1,6 +1,6 @@
 {
-  "version": "1.2.2",
+  "version": "1.2.3",
   "download_url": "https://github.com/johnmburke/Amortization_App",
   "archive_url": "https://github.com/johnmburke/Amortization_App/archive/refs/heads/main.zip",
-  "release_notes": "Changes the schedule date to mean the first payment month and aligns graph/payment dates."
+  "release_notes": "Leaves payment amount fields blank in the breakdown table for the starting balance row."
 }

@@ -17,7 +17,7 @@ import streamlit as st
 
 
 SETTINGS_FILE = Path(__file__).with_name("settings.json")
-APP_VERSION = "1.2.2"
+APP_VERSION = "1.2.3"
 APP_REPOSITORY_URL = "https://github.com/johnmburke/Amortization_App"
 APP_VERSION_URLS = [
     "https://raw.githubusercontent.com/johnmburke/Amortization_App/main/version.json",
@@ -1534,6 +1534,7 @@ def main() -> None:
     with st.expander("Monthly Payment Breakdown"):
         breakdown = all_schedules[
             [
+                "Month",
                 "Date",
                 "Monthly Payment",
                 "Principal + Interest Payment",
@@ -1545,6 +1546,13 @@ def main() -> None:
                 "Balance Due",
             ]
         ].copy()
+        breakdown["Principal + Interest Payment"] = breakdown[
+            "Principal + Interest Payment"
+        ].astype(object)
+        no_payment_rows = breakdown["Month"].eq(0)
+        breakdown.loc[no_payment_rows, "Monthly Payment"] = ""
+        breakdown.loc[no_payment_rows, "Principal + Interest Payment"] = ""
+        breakdown = breakdown.drop(columns=["Month"])
         breakdown["Date"] = pd.to_datetime(breakdown["Date"]).dt.strftime("%b %Y")
         st.dataframe(
             breakdown,
