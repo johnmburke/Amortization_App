@@ -21,7 +21,7 @@ import streamlit as st
 
 
 SETTINGS_FILE = Path(__file__).with_name("settings.json")
-APP_VERSION = "1.3.4"
+APP_VERSION = "1.3.5"
 APP_REPOSITORY_URL = "https://github.com/johnmburke/Amortization_App"
 APP_VERSION_URLS = [
     "https://api.github.com/repos/johnmburke/Amortization_App/contents/version.json?ref=main",
@@ -1505,6 +1505,10 @@ def main() -> None:
             )
 
         with st.expander("Loan Inputs", expanded=True):
+            is_mortgage_loan = st.checkbox(
+                "Is this a mortgage loan?",
+                value=saved_bool(active_settings, "is_mortgage_loan", False),
+            )
             current_balance = st.number_input(
                 "Current loan balance",
                 min_value=0.0,
@@ -1522,10 +1526,6 @@ def main() -> None:
                 ),
                 step=0.000001,
                 format="%.6f",
-            )
-            is_mortgage_loan = st.checkbox(
-                "Is this a mortgage loan?",
-                value=saved_bool(active_settings, "is_mortgage_loan", False),
             )
             if is_mortgage_loan:
                 escrow_payment = st.number_input(
